@@ -1,0 +1,34 @@
+{
+  "name": "leveragetoken",
+  "version": "1.0.0",
+  "description": "contract concept for leveraged positions of a token built-into an erc-20, with long/short capability... pegged to an external asset.",
+  "main": "truffle-config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "truffle test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Devilla/leverageToken.git"
+  },
+  "keywords": [
+    "leverageToken",
+    "PegToken",
+    "short",
+    "long",
+    "erc-20"
+  ],
+  "author": "Dev Yadav",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Devilla/leverageToken/issues"
+  },
+  "homepage": "https://github.com/Devilla/leverageToken#readme",
+  "dependencies": {
+    "chai": "^4.2.0",
+    "chai-as-promised": "^7.1.1",
+    "chai-bignumber": "^3.0.0"
+  }
+}
