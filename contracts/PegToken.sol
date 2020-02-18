@@ -7,6 +7,8 @@ interface OrFeedInterface {
   function getTokenAddress ( string symbol ) external view returns ( address );
   function getSynthBytes32 ( string symbol ) external view returns ( bytes32 );
   function getForexAddress ( string symbol ) external view returns ( address );
+  function requestAsyncEvent(string eventName, string source)  external returns(string);
+  function getAsyncEventResult(string eventName, string source, string referenceId) external view returns (string);
 }
 
 
@@ -36,25 +38,25 @@ interface ERC20 {
 }
 
 library SafeMath {
-  function mul(uint256 a, uint256 b) internal constant returns (uint256) {
+  function mul(uint256 a, uint256 b) internal view returns (uint256) {
     uint256 c = a * b;
     assert(a == 0 || c / a == b);
     return c;
   }
 
-  function div(uint256 a, uint256 b) internal constant returns (uint256) {
+  function div(uint256 a, uint256 b) internal view returns (uint256) {
     assert(b > 0); // Solidity automatically throws when dividing by 0
     uint256 c = a / b;
     assert(a == b * c + a % b); // There is no case in which this doesn't hold
     return c;
   }
 
-  function sub(uint256 a, uint256 b) internal constant returns (uint256) {
+  function sub(uint256 a, uint256 b) internal view returns (uint256) {
     assert(b <= a);
     return a - b;
   }
 
-  function add(uint256 a, uint256 b) internal constant returns (uint256) {
+  function add(uint256 a, uint256 b) internal view returns (uint256) {
     uint256 c = a + b;
     assert(c >= a);
     return c;
@@ -63,7 +65,6 @@ library SafeMath {
 
 // ERC20 Token Smart Contract
 contract PegToken {
-        
         string public constant name = "Synthetic Alibaba Equity Tokens";
         string public constant symbol = "BABA";
         uint8 public constant decimals = 3;
@@ -72,51 +73,44 @@ contract PegToken {
         uint256 public RATE = 0;
         bool public isMinting = true;
         bool public isExchangeListed = false;
-        OrFeedInterface orfeed = OrFeedInterface(0x8316b082621cfedab95bf4a44a1d4b64a6ffc336);
-        
+        OrFeedInterface public orfeed;
         using SafeMath for uint256;
         address public owner;
-        
         /* Event Purchase for createToken added */
         event Purchase(
         address indexed _buyer,
         uint256 _amount
         );
-        
-        
          // Functions with this modifier can only be executed by the owner
          modifier onlyOwner() {
             if (msg.sender != owner) {
-                throw;
+                revert("sender must be owner.");
             }
              _;
          }
-         
-         
-     
         // Balances for each account
         mapping(address => uint256) balances;
         // Owner of account approves the transfer of an amount to another account
         mapping(address => mapping(address=>uint256)) allowed;
-        
         mapping(address => uint256) daiCanLBurnToNow;
         mapping(address => uint256) daiAsCollateralInitial;
         mapping(address => uint256) canUnCollateralizeWhen;
-        mapping(address => uint256 [4]) positions;
+        mapping(address => uint256[4]) positions;
         IKyberNetworkProxy kyberProxy;
         ERC20 eth;
         ERC20 dai;
          address kyberProxyAddress;
          uint256 totalInPositions = 0;
          uint256 totalInCollateralizerClaimPool = 0;
-             
+
         // Its a payable function works as a token factory.
-        function () external {
+        function() external {
             createTokens();
         }
 
         // Constructor
         constructor() public payable {
+            orfeed = OrFeedInterface(0x8316b082621cfedab95bf4a44a1d4b64a6ffc336);
             owner = msg.sender;
             balances[owner] = _totalSupply;
             kyberProxyAddress = 0x818E6FECD516Ecc3849DAf6845e3EC868087B755;
@@ -140,33 +134,32 @@ contract PegToken {
                 convertForCollateral(msg.value);
             }
             else{
-                throw;
+                revert("Not Minting at the moment");
             }
         }
 
         function convertForCollateral(uint256 amount) internal returns (bool){
             require(daiCanLBurnToNow[msg.sender] == 0x0, "Only one collateralization per account");
             bytes memory PERM_HINT = "PERM";
-              uint daiAmount = kyberProxy.tradeWithHint.value(amount)
-              (eth, amount, dai, this, 8000000000000000000000000000000000000000000000000000000000000000, 0, 0x0000000000000000000000000000000000000004, PERM_HINT);
-                uint256 daiCollateral = daiAmount.div(3);
-                uint256 daiCanBurnTo = daiAmount.sub(daiCollateral);
-                daiCanLBurnToNow[msg.sender].add(daiCanBurnTo);
-                daiAsCollateralInitial[msg.sender].add(daiCollateral);
-                canUnCollateralizeWhen[msg.sender] = block.timestamp.add(30 days);
+            uint daiAmount = kyberProxy.tradeWithHint.value(amount)
+            (eth, amount, dai, this, 8000000000000000000000000000000000000000000000000000000000000000, 0, 0x0000000000000000000000000000000000000004, PERM_HINT);
+            uint256 daiCollateral = daiAmount.div(3);
+            uint256 daiCanBurnTo = daiAmount.sub(daiCollateral);
+            daiCanLBurnToNow[msg.sender].add(daiCanBurnTo);
+            daiAsCollateralInitial[msg.sender].add(daiCollateral);
+            canUnCollateralizeWhen[msg.sender] = block.timestamp.add(30 days);
         }
-        
-        function burnTokens(uint256 amount){
+        function burnTokens(uint256 amount) public{
              require(balances[msg.sender] >= amount, "You dont have any tokens");
              _totalSupply = _totalSupply.sub(amount);
               balances[msg.sender] = balances[msg.sender].sub(amount);
-            
+
              uint256 amountDaiSend = orfeed.getExchangeRate("BABA", "USD", "PROVIDER1", 1).mul(amount).div(100);
-              
+
              require(dai.transfer(msg.sender, amountDaiSend),"You Don't have enough Dai");
-             
+
         }
-        function burnAllTokens(){
+        function burnAllTokens() public{
              require(balances[msg.sender] >= amount, "You dont have any tokens");
              uint256 amount = balances[msg.sender];
              _totalSupply = _totalSupply.sub(amount);
@@ -174,7 +167,7 @@ contract PegToken {
              uint256 amountDaiSend = orfeed.getExchangeRate("BABA", "USD", "PROVIDER1", 1).mul(amount).div(100);
              require(dai.transfer(msg.sender, amountDaiSend), "You don't have enough Dai");
         }
-        function buyLong (uint256 multiple) payable returns(bool){
+        function buyLong (uint256 multiple) public payable returns(bool){
             require(positions[msg.sender][1] == 0, "You already have a position. Use another account");
             uint256 initialAmount = msg.value;
             require(msg.value > 1000000, "Not enough for a trade");
@@ -187,7 +180,7 @@ contract PegToken {
             positions[msg.sender] = [1, daiAmount, multiple, assetPrice];
             return true;
         }
-        function sellShort(uint256 multiple) payable returns(bool){
+        function sellShort(uint256 multiple)public payable returns(bool){
             require(positions[msg.sender][1] == 0, "You already have a position. Use another account");
             uint256 initialAmount = msg.value;
             require(msg.value > 1000000, "Not enough for a trade");
@@ -200,14 +193,14 @@ contract PegToken {
             positions[msg.sender] = [0, daiAmount, multiple, assetPrice];
             return true;
         }
-        function closePosition() returns(bool){
+        function closePosition() public returns(bool){
             require(positions[msg.sender][1]!=0,"You dont have a position. Create one before you close it");
             uint256 currentPrice = orfeed.getExchangeRate("BABA", "USD", "PROVIDER1", 1);
             uint256 boughtPrice = positions[msg.sender][3];
             uint256 percentageGain;
             uint amountExtraToSend;
             uint amountToSend;
-            uint256 counterAmount;
+            // uint256 counterAmount;
             //for short
             if(positions[msg.sender][0] == 0){
 
@@ -222,29 +215,27 @@ contract PegToken {
                //lost money
                else{
                      amountExtraToSend = getPNL(msg.sender, currentPrice, boughtPrice, positions[msg.sender][0]);
-                     
+
                       totalInCollateralizerClaimPool = totalInCollateralizerClaimPool.add(amountExtraToSend);
                        if(positions[msg.sender][1] > amountExtraToSend){
-                           
+
                              amountToSend = positions[msg.sender][1].sub(amountExtraToSend);
-                  
+
                    dai.transfer(msg.sender, amountToSend);
                        }
-                       
-                       
-                      
+
                    positions[msg.sender] = [0,0,0,0];
                    return true;
                }
             }
-            
+
             //for longs
             else{
                 //made money
                 if(currentPrice >= boughtPrice){
-                     amountExtraToSend = getPNL(msg.sender, currentPrice, boughtPrice, positions[msg.sender][0]);
+                    amountExtraToSend = getPNL(msg.sender, currentPrice, boughtPrice, positions[msg.sender][0]);
                     amountToSend = positions[msg.sender][1].add(amountExtraToSend);
-               
+
                    dai.transfer(msg.sender, amountToSend);
                     positions[msg.sender] = [0,0,0,0];
                    return true;
@@ -253,27 +244,23 @@ contract PegToken {
                else{
                      amountExtraToSend = getPNL(msg.sender, currentPrice, boughtPrice, positions[msg.sender][0]);
                      totalInCollateralizerClaimPool = totalInCollateralizerClaimPool.add(amountExtraToSend);
-                     
+
                     if(positions[msg.sender][1] > amountExtraToSend){
                         amountToSend = positions[msg.sender][1].sub(amountExtraToSend);
-                       
+
                        dai.transfer(msg.sender, amountToSend);
                     }
                     positions[msg.sender] = [0,0,0,0];
                    return true;
                }
             }
-            
-           
-            
         }
-        
-        
-        function getPNL(address userAddress, uint256 currentPrice, uint256 boughtPrice, uint256 side) constant returns(uint256){
-            
+
+        function getPNL(address userAddress, uint256 currentPrice, uint256 boughtPrice, uint256 side) public view  returns(uint256){
+
              uint256 percentageGain;
             uint256 amountExtraToSend;
-                
+
             if(side == 0){
                 //mad money
                 if(currentPrice <= boughtPrice){
@@ -284,10 +271,10 @@ contract PegToken {
                else{
                    percentageGain = currentPrice.mul(1000000).div(boughtPrice.mul(1000));
                 amountExtraToSend = positions[userAddress][1].mul(percentageGain).div(1000).mul(positions[userAddress][2]);
-                  
+
                }
             }
-            
+
             else{
                  //made money
                 if(currentPrice >= boughtPrice){
@@ -298,83 +285,80 @@ contract PegToken {
                else{
                    percentageGain = boughtPrice.mul(1000000).div(currentPrice.mul(1000));
                     amountExtraToSend = positions[userAddress][1].mul(percentageGain).div(1000).mul(positions[msg.sender][2]);
-                   
-                   
-                   
-                  
                }
             }
-            
             return amountExtraToSend;
         }
-        
-        function getCollateral(uint256 amount) returns (bool){
-            require(canUnCollateralizeWhen[msg.sender] !=0, "You dont have any collateral");
-             require(canUnCollateralizeWhen[msg.sender] < block.timestamp, "You need to wait until timestamp is reached. 30 days from adding collateral ");
-             
-             require(dai.transfer(msg.sender, amount));
-             
+
+        function getCollateral(uint256 amount) public returns (bool){
+            require(canUnCollateralizeWhen[msg.sender] != 0, "You dont have any collateral");
+             require(canUnCollateralizeWhen[msg.sender] < block.timestamp,
+            "You need to wait until timestamp is reached. 30 days from adding collateral ");
+
+             require(dai.transfer(msg.sender, amount),"Dai transfer failed!");
+
              daiAsCollateralInitial[msg.sender].sub(amount);
-             
+
         }
-        
+
         /* made getETH2TokenRate() public */
         function getETH2TokenRate() public view returns(uint256){
-            uint256 equityRate = orfeed.getExchangeRate("BABA", "USD", "PROVIDER1", 1);
-            uint256 dolToEthRate = orfeed.getExchangeRate("DAI", "ETH", "DEFAULT", equityRate);
+
+            uint256 equityRate = orfeed.getExchangeRate("AAPL", "USD", "PROVIDER1", 1);
+            uint256 dolToEthRate = 100;
+            orfeed.getExchangeRate("DAI", "ETH", "DEFAULT", equityRate);
             uint256 base = 100000000;
             uint256 rate = base.div(dolToEthRate);
             return rate;
         }
-        
-        
+
         function endCrowdsale() onlyOwner {
             isMinting = false;
         }
-        
-        function totalSupply() constant returns(uint256){
+
+        function totalSupply() public view returns(uint256){
             return _totalSupply;
         }
         // What is the balance of a particular account?
-        function balanceOf(address _owner) constant returns(uint256){
+        function balanceOf(address _owner) public view returns(uint256){
             return balances[_owner];
         }
-        
-        function balanceOfPositions(address _owner) constant returns(uint256[4] thePositions){
+
+        function balanceOfPositions(address _owner) public view returns(uint256[4] thePositions){
             return positions[_owner];
         }
-        
-        function getClaimPoolTotal () constant returns(uint256){
+
+        function getClaimPoolTotal () public view returns(uint256){
             return totalInCollateralizerClaimPool;
         }
 
-         // Transfer the balance from owner's account to another account   
-        function transfer(address _to, uint256 _value)  returns(bool) {
-            require(balances[msg.sender] >= _value && _value > 0 );
+         // Transfer the balance from owner's account to another account
+        function transfer(address _to, uint256 _value) public  returns(bool) {
+            require(balances[msg.sender] >= _value && _value > 0, "Balance is low.");
             balances[msg.sender] = balances[msg.sender].sub(_value);
             balances[_to] = balances[_to].add(_value);
             emit Transfer(msg.sender, _to, _value);
             return true;
         }
-        
+
     // Send _value amount of tokens from address _from to address _to
     // The transferFrom method is used for a withdraw workflow, allowing contracts to send
     // tokens on your behalf, for example to "deposit" to a contract address and/or to charge
     // fees in sub-currencies; the command should fail unless the _from account has
     // deliberately authorized the sender of the message via some mechanism; we propose
     // these standardized APIs for approval:
-    function transferFrom(address _from, address _to, uint256 _value)  returns(bool) {
-        require(allowed[_from][msg.sender] >= _value && balances[_from] >= _value && _value > 0);
+    function transferFrom(address _from, address _to, uint256 _value) public returns(bool) {
+        require(allowed[_from][msg.sender] >= _value && balances[_from] >= _value && _value > 0, "Balance is low.");
         balances[_from] = balances[_from].sub(_value);
         balances[_to] = balances[_to].add(_value);
         allowed[_from][msg.sender] = allowed[_from][msg.sender].sub(_value);
-        Transfer(_from, _to, _value);
+        emit Transfer(_from, _to, _value);
         return true;
     }
-    
+
     // Allow _spender to withdraw from your account, multiple times, up to the _value amount.
     // If this function is called again it overwrites the current allowance with _value.
-    function approve(address _spender, uint256 _value) returns(bool){
+    function approve(address _spender, uint256 _value) public returns(bool){
         allowed[msg.sender][_spender] = _value;
         emit Approval(msg.sender, _spender, _value);
         return true;
@@ -385,7 +369,7 @@ contract PegToken {
     }
 
     // Returns the amount which _spender is still allowed to withdraw from _owner
-    function allowance(address _owner, address _spender) constant returns(uint256){
+    function allowance(address _owner, address _spender) public view returns(uint256){
         return allowed[_owner][_spender];
     }
     event Transfer(address indexed _from, address indexed _to, uint256 _value);

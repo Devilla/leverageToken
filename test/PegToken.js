@@ -34,7 +34,7 @@ contract('PegToken', () => {
         })
 
         it('creates Tokens', async () => {
-            // SUCcESS
+            // SUCCESS
             const event = result.logs[0].args
             console.log(event);
 
